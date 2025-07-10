@@ -77,7 +77,7 @@ pub async fn handle_post(
     if payload.room.is_empty() {
         let err = MatrixError {
             errcode: "M_BAD_JSON".to_string(),
-            error: "Missing parameters".to_string(),
+            error: "Missing room parameter".to_string(),
         };
         return (StatusCode::BAD_REQUEST, headers, axum::Json(err)).into_response();
     }
@@ -86,10 +86,10 @@ pub async fn handle_post(
         match exchange_openid_userinfo(&payload.openid_token, &state.resolver, &state.client).await
         {
             Ok(user) => user,
-            Err(_) => {
+            Err(e) => {
                 let err = MatrixError {
                     errcode: "M_LOOKUP_FAILED".to_string(),
-                    error: "Failed to look up user info from homeserver".to_string(),
+                    error: format!("Failed to look up user info from homeserver: {e}"),
                 };
                 return (StatusCode::INTERNAL_SERVER_ERROR, headers, axum::Json(err))
                     .into_response();
@@ -162,18 +162,31 @@ pub struct UserInfo {
     pub sub: String,
 }
 
+use thiserror::Error;
+
+/// Error type for Matrix server resolution.
+#[derive(Debug, Error)]
+pub enum ExchangeOpenIdUserInfoError {
+    #[error("Invalid token")]
+    InvalidToken,
+    #[error("Failed to resolve matrix server: {0}")]
+    FailedToResolveMatrixServer(#[from] resolve::ResolveServerError),
+
+    #[error("HTTP client error: {0}")]
+    Http(#[from] reqwest::Error),
+}
+
 pub async fn exchange_openid_userinfo(
     token: &OpenIDTokenType,
     resolver: &MatrixResolver,
     client: &reqwest::Client,
-) -> Result<UserInfo, ()> {
+) -> Result<UserInfo, ExchangeOpenIdUserInfoError> {
     if token.access_token.is_empty() || token.matrix_server_name.is_empty() {
-        return Err(());
+        return Err(ExchangeOpenIdUserInfoError::InvalidToken);
     }
     let server = resolver
         .resolve_actual_dest(token.matrix_server_name.as_str())
-        .await
-        .map_err(|_| ())?;
+        .await?;
 
     let response = client
         .get(format!(
@@ -182,9 +195,8 @@ pub async fn exchange_openid_userinfo(
         ))
         .header("Authorization", format!("Bearer {}", token.access_token))
         .send()
-        .await
-        .map_err(|_| ())?;
-    let user_info = response.json().await.map_err(|_| ())?;
+        .await?;
+    let user_info = response.json().await?;
 
     Ok(user_info)
 }
@@ -195,7 +207,7 @@ pub fn get_join_token(
     api_secret: &str,
     room: &str,
     identity: &str,
-) -> Result<String, ()> {
+) -> Result<String, livekit_api::access_token::AccessTokenError> {
     livekit_api::access_token::AccessToken::with_api_key(api_key, api_secret)
         .with_grants(VideoGrants {
             room: room.to_string(),
@@ -208,7 +220,6 @@ pub fn get_join_token(
         .with_identity(identity)
         .with_ttl(Duration::from_secs(60 * 60))
         .to_jwt()
-        .map_err(|_| ())
 }
 
 pub fn read_key_secret() -> (String, String) {

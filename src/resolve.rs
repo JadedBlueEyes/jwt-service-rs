@@ -1,11 +1,33 @@
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
-use std::time::Duration;
 
-use color_eyre::eyre;
 use hickory_resolver::{Resolver, TokioResolver};
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
+
+use thiserror::Error;
+
+/// Error type for Matrix server resolution.
+#[derive(Debug, Error)]
+pub enum ResolveServerError {
+    #[error("Failed to parse address: {0}")]
+    AddrParse(#[from] std::net::AddrParseError),
+
+    #[error("HTTP client error: {0}")]
+    Http(#[from] reqwest::Error),
+
+    #[error("DNS resolution error: {0}")]
+    Dns(#[from] hickory_resolver::ResolveError),
+
+    #[error("Invalid port number: {0}")]
+    InvalidPort(#[from] std::num::ParseIntError),
+
+    #[error("Malformed .well-known response")]
+    MalformedWellKnown,
+
+    #[error("Unexpected error: {0}")]
+    Other(String),
+}
 
 /// Represents the resolved destination for a Matrix server.
 #[derive(Debug, Clone)]
@@ -40,14 +62,16 @@ pub struct MatrixResolver {
 
 impl MatrixResolver {
     /// Create a new MatrixResolver.
-    pub async fn new() -> eyre::Result<Self> {
-        let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
+    pub async fn new() -> Result<Self, ResolveServerError> {
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()?;
 
         let resolver = Resolver::builder_tokio()?.build();
 
         Ok(MatrixResolver { client, resolver })
     }
-    pub async fn new_with_client(client: Client) -> eyre::Result<Self> {
+    pub async fn new_with_client(client: Client) -> Result<Self, ResolveServerError> {
         let resolver = Resolver::builder_tokio()?.build();
 
         Ok(MatrixResolver { client, resolver })
@@ -57,7 +81,7 @@ impl MatrixResolver {
     /// Implemented according to the specification at <https://matrix.org/docs/spec/server_server/r0.1.4#resolving-server-names>
     /// Numbers in comments below refer to bullet points in linked section of specification.
     #[tracing::instrument(name = "actual", level = "debug", skip(self))]
-    pub async fn resolve_actual_dest(&self, dest: &str) -> eyre::Result<Resolution> {
+    pub async fn resolve_actual_dest(&self, dest: &str) -> Result<Resolution, ResolveServerError> {
         // 1. If the hostname is an IP literal
         if let Some((ip, port)) = get_ip_with_port(dest) {
             let socket = SocketAddr::new(ip, port);
@@ -136,17 +160,26 @@ impl MatrixResolver {
             m_server: String,
         }
         let url = format!("https://{hostname}/.well-known/matrix/server");
-        let resp = self.client.get(&url).send().await.ok()?;
+        let resp = match self.client.get(&url).send().await {
+            Ok(r) => r,
+            Err(_) => return None,
+        };
         if resp.status() != StatusCode::OK {
             return None;
         }
-        let wk: WellKnown = resp.json().await.ok()?;
+        let wk: WellKnown = match resp.json().await {
+            Ok(wk) => wk,
+            Err(_) => return None,
+        };
         let (host, port) = parse_server_name(&wk.m_server);
         Some((host, port))
     }
 
     /// Query SRV records for a hostname, returning (target, port) if found.
-    async fn query_srv_record(&self, hostname: &str) -> eyre::Result<Option<(String, u16)>> {
+    async fn query_srv_record(
+        &self,
+        hostname: &str,
+    ) -> Result<Option<(String, u16)>, ResolveServerError> {
         let srv_names = [
             format!("_matrix-fed._tcp.{hostname}"),
             format!("_matrix._tcp.{hostname}"),

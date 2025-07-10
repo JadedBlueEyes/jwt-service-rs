@@ -20,6 +20,7 @@ livekit-api = "0.4.4"
 reqwest = { version = "0.12.22", features = ["json"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+thiserror = "2.0.12"
 tokio = { version = "1.46.1", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1.41"
 
