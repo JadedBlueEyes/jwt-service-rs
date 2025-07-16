@@ -11,6 +11,7 @@ use livekit_api::access_token::VideoGrants;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, env, sync::Arc, time::Duration};
 use tracing::{instrument, trace};
+use url::Url;
 
 pub use resolve::MatrixResolver;
 
@@ -172,6 +173,8 @@ pub enum ExchangeOpenIdUserInfoError {
     InvalidToken,
     #[error("Failed to resolve matrix server: {0}")]
     FailedToResolveMatrixServer(#[from] resolve::ResolveServerError),
+    #[error("Bad URL: {0}")]
+    BadUrl(#[from] url::ParseError),
 
     #[error("HTTP client error: {0}")]
     Http(#[from] reqwest::Error),
@@ -192,12 +195,16 @@ pub async fn exchange_openid_userinfo(
 
     trace!(?server, "Resolved server");
 
+    let url = format!(
+        "https://{}/_matrix/federation/v1/openid/userinfo",
+        server.string()
+    );
+
     let response = client
-        .get(format!(
-            "https://{}/_matrix/federation/v1/openid/userinfo",
-            server.string()
-        ))
-        .header("Authorization", format!("Bearer {}", token.access_token))
+        .get(Url::parse_with_params(
+            &url,
+            &[("access_token", token.access_token.as_str())],
+        )?)
         .send()
         .await?;
 
