@@ -5,6 +5,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
 };
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
@@ -27,6 +28,11 @@ async fn main() {
         std::process::exit(1);
     }
 
+    let filter = tracing_subscriber::EnvFilter::builder().from_env_lossy();
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer())
+        .init();
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(skip_verify_tls)
         .timeout(std::time::Duration::from_secs(10))
