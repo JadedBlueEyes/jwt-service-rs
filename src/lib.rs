@@ -10,7 +10,7 @@ use axum::{
 use livekit_api::access_token::VideoGrants;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, env, sync::Arc, time::Duration};
-use tracing::{instrument, trace};
+use tracing::{error, info, instrument, trace};
 use url::Url;
 
 pub use resolve::MatrixResolver;
@@ -51,10 +51,12 @@ pub struct MatrixError {
     pub error: String,
 }
 
+#[instrument]
 pub async fn healthcheck() -> impl IntoResponse {
     StatusCode::OK
 }
 
+#[instrument]
 pub async fn handle_options() -> impl IntoResponse {
     let mut headers = HeaderMap::new();
     headers.insert("Access-Control-Allow-Origin", "*".parse().unwrap());
@@ -68,6 +70,7 @@ pub async fn handle_options() -> impl IntoResponse {
     (StatusCode::OK, headers)
 }
 
+#[instrument(skip(state, payload))]
 pub async fn handle_post(
     Extension(state): Extension<Arc<AppState>>,
     Json(payload): Json<SFURequest>,
@@ -77,6 +80,11 @@ pub async fn handle_post(
     headers.insert("Content-Type", "application/json".parse().unwrap());
 
     if payload.room.is_empty() {
+        error!(
+            errcode = "M_BAD_JSON",
+            error = "Missing room parameter",
+            "Missing room parameter in request"
+        );
         let err = MatrixError {
             errcode: "M_BAD_JSON".to_string(),
             error: "Missing room parameter".to_string(),
@@ -84,19 +92,23 @@ pub async fn handle_post(
         return (StatusCode::BAD_REQUEST, headers, axum::Json(err)).into_response();
     }
 
-    let user_info =
-        match exchange_openid_userinfo(&payload.openid_token, &state.resolver, &state.client).await
-        {
-            Ok(user) => user,
-            Err(e) => {
-                let err = MatrixError {
-                    errcode: "M_LOOKUP_FAILED".to_string(),
-                    error: format!("Failed to look up user info from homeserver: {e}"),
-                };
-                return (StatusCode::INTERNAL_SERVER_ERROR, headers, axum::Json(err))
-                    .into_response();
-            }
-        };
+    let user_info = match exchange_openid_userinfo(
+        &payload.openid_token,
+        &state.resolver,
+        &state.client,
+    )
+    .await
+    {
+        Ok(user) => user,
+        Err(e) => {
+            error!(errcode = "M_LOOKUP_FAILED", error = %e, server_name = %payload.openid_token.matrix_server_name, "Failed to look up user info from homeserver");
+            let err = MatrixError {
+                errcode: "M_LOOKUP_FAILED".to_string(),
+                error: format!("Failed to look up user info from homeserver: {e}"),
+            };
+            return (StatusCode::INTERNAL_SERVER_ERROR, headers, axum::Json(err)).into_response();
+        }
+    };
 
     let is_local_user = state
         .local_homeservers
@@ -112,7 +124,8 @@ pub async fn handle_post(
         &lk_identity,
     ) {
         Ok(t) => t,
-        Err(_) => {
+        Err(e) => {
+            error!(errcode = "M_UNKNOWN", error = %e, "Failed to generate join token");
             let err = MatrixError {
                 errcode: "M_UNKNOWN".to_string(),
                 error: "Internal Server Error".to_string(),
@@ -134,13 +147,14 @@ pub async fn handle_post(
         };
         match lk_client.create_room(&payload.room, options).await {
             Ok(room) => {
-                tracing::info!(
-                    "Created LiveKit room sid: {} (alias: {})",
-                    room.sid,
-                    room.name
+                info!(
+                    room_sid = %room.sid,
+                    room_name = %room.name,
+                    "Created LiveKit room"
                 );
             }
             Err(e) => {
+                error!(errcode = "M_UNKNOWN", error = %e, room_name = %payload.room, "Unable to create room on SFU");
                 let err = MatrixError {
                     errcode: "M_UNKNOWN".to_string(),
                     error: format!("Unable to create room on SFU: {e}"),
@@ -180,13 +194,17 @@ pub enum ExchangeOpenIdUserInfoError {
     Http(#[from] reqwest::Error),
 }
 
-#[instrument(level="debug", skip(token, resolver, client), fields(server = token.matrix_server_name))]
+#[instrument(level="debug", skip(token, resolver, client), fields(server = %token.matrix_server_name))]
 pub async fn exchange_openid_userinfo(
     token: &OpenIDTokenType,
     resolver: &MatrixResolver,
     client: &reqwest::Client,
 ) -> Result<UserInfo, ExchangeOpenIdUserInfoError> {
     if token.access_token.is_empty() || token.matrix_server_name.is_empty() {
+        error!(
+            errcode = "InvalidToken",
+            "Access token or matrix server name is empty"
+        );
         return Err(ExchangeOpenIdUserInfoError::InvalidToken);
     }
     let server = resolver
@@ -216,6 +234,7 @@ pub async fn exchange_openid_userinfo(
     Ok(user_info)
 }
 
+#[instrument(skip(api_key, api_secret, room, identity))]
 pub fn get_join_token(
     is_local_user: bool,
     api_key: &str,
