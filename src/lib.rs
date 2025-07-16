@@ -245,10 +245,19 @@ pub fn get_join_token(
     livekit_api::access_token::AccessToken::with_api_key(api_key, api_secret)
         .with_grants(VideoGrants {
             room: room.to_string(),
+            // Only local users can create the room
             room_create: is_local_user,
+            // But all users can join the room
             room_join: true,
+
+            // These defaults are true anyway
             can_publish: true,
             can_subscribe: true,
+            can_publish_data: true,
+
+            // Not set in lk-jwt-service, but let's see if it does anything
+            can_update_own_metadata: true,
+
             ..Default::default()
         })
         .with_identity(identity)
