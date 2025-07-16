@@ -48,7 +48,7 @@ impl Resolution {
     pub fn string(&self) -> String {
         match &self.destination {
             ResolvedDestination::Literal(addr) => addr.to_string(),
-            ResolvedDestination::Named(host, port) => format!("{host}{port}"),
+            ResolvedDestination::Named(host, port) => format!("{host}:{port}"),
         }
     }
 }
