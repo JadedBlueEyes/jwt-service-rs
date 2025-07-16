@@ -266,8 +266,12 @@ pub fn get_join_token(
 }
 
 pub fn read_key_secret() -> (String, String) {
-    let key = env::var("LIVEKIT_KEY").unwrap_or_default();
-    let secret = env::var("LIVEKIT_SECRET").unwrap_or_default();
+    let key = env::var("LIVEKIT_KEY")
+        .or_else(|_| env::var("LIVEKIT_API_KEY"))
+        .unwrap_or_default();
+    let secret = env::var("LIVEKIT_SECRET")
+        .or_else(|_| env::var("LIVEKIT_API_SECRET"))
+        .unwrap_or_default();
     let key_path = env::var("LIVEKIT_KEY_FROM_FILE").unwrap_or_default();
     let secret_path = env::var("LIVEKIT_SECRET_FROM_FILE").unwrap_or_default();
     let key_secret_path = env::var("LIVEKIT_KEY_FILE").unwrap_or_default();

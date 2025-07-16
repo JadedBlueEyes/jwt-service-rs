@@ -4,10 +4,10 @@ Tokens for users from third-party home servers can only join rooms and can't cre
 - `LIVEKIT_INSECURE_SKIP_VERIFY_TLS`:
   If set to "YES_I_KNOW_WHAT_I_AM_DOING", disables TLS certificate verification for outgoing requests.
 
-- `LIVEKIT_KEY` or `LIVEKIT_KEY_FILE`:
+- `LIVEKIT_KEY` or `LIVEKIT_API_KEY` or `LIVEKIT_KEY_FILE`:
   Used to provide the LiveKit API key (directly or via file).
 
-- `LIVEKIT_SECRET` or `LIVEKIT_SECRET_FILE`:
+- `LIVEKIT_SECRET` or `LIVEKIT_API_SECRET` or `LIVEKIT_SECRET_FILE`:
   Used to provide the LiveKit API secret (directly or via file).
 
 - `LIVEKIT_URL`:
