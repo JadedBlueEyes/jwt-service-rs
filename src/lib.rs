@@ -255,9 +255,6 @@ pub fn get_join_token(
             can_subscribe: true,
             can_publish_data: true,
 
-            // Not set in lk-jwt-service, but let's see if it does anything
-            can_update_own_metadata: true,
-
             ..Default::default()
         })
         .with_identity(identity)
