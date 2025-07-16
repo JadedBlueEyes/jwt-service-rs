@@ -1023,9 +1023,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc95de3f9a3aee87733789fb7a79643871eb05e5ae037d4876e70a6143c3d9e4"
 dependencies = [
  "base64 0.21.7",
+ "futures-util",
  "http 0.2.12",
  "jsonwebtoken",
  "livekit-protocol",
+ "livekit-runtime",
  "log",
  "parking_lot",
  "pbjson-types",
@@ -1037,6 +1039,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 1.0.69",
+ "tokio",
  "tokio-tungstenite",
  "url",
 ]
