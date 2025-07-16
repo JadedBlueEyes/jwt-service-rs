@@ -10,6 +10,7 @@ use axum::{
 use livekit_api::access_token::VideoGrants;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, env, sync::Arc, time::Duration};
+use tracing::{instrument, trace};
 
 pub use resolve::MatrixResolver;
 
@@ -176,6 +177,7 @@ pub enum ExchangeOpenIdUserInfoError {
     Http(#[from] reqwest::Error),
 }
 
+#[instrument(level="debug", skip(token, resolver, client), fields(server = token.matrix_server_name))]
 pub async fn exchange_openid_userinfo(
     token: &OpenIDTokenType,
     resolver: &MatrixResolver,
@@ -188,6 +190,8 @@ pub async fn exchange_openid_userinfo(
         .resolve_actual_dest(token.matrix_server_name.as_str())
         .await?;
 
+    trace!(?server, "Resolved server");
+
     let response = client
         .get(format!(
             "https://{}/_matrix/federation/v1/openid/userinfo",
@@ -196,7 +200,11 @@ pub async fn exchange_openid_userinfo(
         .header("Authorization", format!("Bearer {}", token.access_token))
         .send()
         .await?;
+
+    trace!("Sent request");
+
     let user_info = response.json().await?;
+    trace!("Parsed response");
 
     Ok(user_info)
 }
