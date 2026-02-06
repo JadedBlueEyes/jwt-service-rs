@@ -1065,6 +1065,7 @@ name = "jwt-service"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "color-eyre",
  "hickory-resolver 0.25.2",
  "livekit-api",
@@ -1072,6 +1073,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.12",
  "tokio",
  "tower",
