@@ -710,7 +710,7 @@ mod tests {
 
         // Create client with custom DNS resolver
         let builder = Client::builder()
-            .danger_accept_invalid_certs(true)
+            .tls_danger_accept_invalid_certs(true)
             .timeout(std::time::Duration::from_secs(10));
         let client = resolver.create_client_with_builder(builder).unwrap();
 
@@ -911,7 +911,7 @@ mod tests {
 
         // Create ONE client that will be reused for all servers
         let builder = Client::builder()
-            .danger_accept_invalid_certs(true)
+            .tls_danger_accept_invalid_certs(true)
             .timeout(std::time::Duration::from_secs(10));
         let client = resolver.create_client_with_builder(builder).unwrap();
 

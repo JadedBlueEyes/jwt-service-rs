@@ -72,7 +72,7 @@ async fn main() {
     let resolver = Arc::new(MatrixResolver::new().await.unwrap());
     let builder = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .danger_accept_invalid_certs(skip_verify_tls);
+        .tls_danger_accept_invalid_certs(skip_verify_tls);
     let federation_client = resolver.create_client_with_builder(builder).unwrap();
 
     println!("LIVEKIT_URL: {}", lk_url);
