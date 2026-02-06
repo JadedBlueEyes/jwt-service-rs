@@ -33,19 +33,19 @@ async fn main() {
         .with(filter)
         .with(tracing_subscriber::fmt::layer())
         .init();
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(skip_verify_tls)
+    let resolver = Arc::new(MatrixResolver::new().await.unwrap());
+    let builder = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .unwrap();
+        .danger_accept_invalid_certs(skip_verify_tls);
+    let federation_client = resolver.create_client_with_builder(builder).unwrap();
 
     let state = Arc::new(AppState {
         key,
         secret,
         lk_url,
         local_homeservers,
-        client: client.clone(),
-        resolver: MatrixResolver::new_with_client(client).await.unwrap(),
+        federation_client,
+        resolver,
     });
 
     let app = build_app(state);

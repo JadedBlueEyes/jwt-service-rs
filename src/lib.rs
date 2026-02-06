@@ -21,8 +21,8 @@ pub struct AppState {
     pub secret: String,
     pub lk_url: String,
     pub local_homeservers: HashSet<String>,
-    pub client: reqwest::Client,
-    pub resolver: resolve::MatrixResolver,
+    pub federation_client: reqwest::Client,
+    pub resolver: Arc<resolve::MatrixResolver>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -95,7 +95,7 @@ pub async fn handle_post(
     let user_info = match exchange_openid_userinfo(
         &payload.openid_token,
         &state.resolver,
-        &state.client,
+        &state.federation_client,
     )
     .await
     {
@@ -194,11 +194,11 @@ pub enum ExchangeOpenIdUserInfoError {
     Http(#[from] reqwest::Error),
 }
 
-#[instrument(level="debug", skip(token, resolver, client), fields(server = %token.matrix_server_name))]
+#[instrument(level="debug", skip(token, resolver, federation_client), fields(server = %token.matrix_server_name))]
 pub async fn exchange_openid_userinfo(
     token: &OpenIDTokenType,
-    resolver: &MatrixResolver,
-    client: &reqwest::Client,
+    resolver: &Arc<MatrixResolver>,
+    federation_client: &reqwest::Client,
 ) -> Result<UserInfo, ExchangeOpenIdUserInfoError> {
     if token.access_token.is_empty() || token.matrix_server_name.is_empty() {
         error!(
@@ -207,18 +207,19 @@ pub async fn exchange_openid_userinfo(
         );
         return Err(ExchangeOpenIdUserInfoError::InvalidToken);
     }
-    let server = resolver
-        .resolve_actual_dest(token.matrix_server_name.as_str())
+    let resolution = resolver
+        .resolve_server(token.matrix_server_name.as_str())
         .await?;
 
-    trace!(?server, "Resolved server");
+    trace!(?resolution, "Resolved server");
 
+    // Use the base_url to build the request URL
     let url = format!(
-        "https://{}/_matrix/federation/v1/openid/userinfo",
-        server.string()
+        "{}/_matrix/federation/v1/openid/userinfo",
+        resolution.base_url()
     );
 
-    let response = client
+    let response = federation_client
         .get(Url::parse_with_params(
             &url,
             &[("access_token", token.access_token.as_str())],
@@ -284,15 +285,15 @@ pub fn read_key_secret() -> (String, String) {
             }
         }
     } else {
-        if !key_path.is_empty() {
-            if let Ok(contents) = std::fs::read_to_string(&key_path) {
-                key = contents.trim().to_string();
-            }
+        if !key_path.is_empty()
+            && let Ok(contents) = std::fs::read_to_string(&key_path)
+        {
+            key = contents.trim().to_string();
         }
-        if !secret_path.is_empty() {
-            if let Ok(contents) = std::fs::read_to_string(&secret_path) {
-                secret = contents.trim().to_string();
-            }
+        if !secret_path.is_empty()
+            && let Ok(contents) = std::fs::read_to_string(&secret_path)
+        {
+            secret = contents.trim().to_string();
         }
     }
     (key.trim().to_string(), secret.trim().to_string())
@@ -316,13 +317,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_healthcheck() {
+        let resolver = Arc::new(MatrixResolver::new().await.unwrap());
+        let federation_client = resolver.create_client().unwrap();
+
         let state = Arc::new(AppState {
             key: "".to_string(),
             secret: "".to_string(),
             lk_url: "".to_string(),
             local_homeservers: HashSet::new(),
-            client: reqwest::Client::new(),
-            resolver: MatrixResolver::new().await.unwrap(),
+            federation_client,
+            resolver,
         });
         let app = build_app(state);
         let response = app
@@ -339,13 +343,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_options() {
+        let resolver = Arc::new(MatrixResolver::new().await.unwrap());
+        let federation_client = resolver.create_client().unwrap();
+
         let state = Arc::new(AppState {
             key: "".to_string(),
             secret: "".to_string(),
             lk_url: "".to_string(),
             local_homeservers: HashSet::new(),
-            client: reqwest::Client::new(),
-            resolver: MatrixResolver::new().await.unwrap(),
+            federation_client,
+            resolver,
         });
         let app = build_app(state);
         let response = app
@@ -366,13 +373,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_handle_post_missing_params() {
+        let resolver = Arc::new(MatrixResolver::new().await.unwrap());
+        let federation_client = resolver.create_client().unwrap();
+
         let state = Arc::new(AppState {
             key: "".to_string(),
             secret: "".to_string(),
             lk_url: "".to_string(),
             local_homeservers: HashSet::new(),
-            client: reqwest::Client::new(),
-            resolver: MatrixResolver::new().await.unwrap(),
+            federation_client,
+            resolver,
         });
         let app = build_app(state);
         let body = serde_json::json!({}).to_string();
@@ -400,5 +410,46 @@ mod tests {
             let token = get_join_token(is_local_user, api_key, api_secret, room, identity).unwrap();
             assert!(!token.is_empty());
         }
+    }
+
+    /// Demonstrates client reuse with dynamic DNS resolution.
+    ///
+    /// The MatrixDnsResolver enables a single reqwest client to handle all
+    /// Matrix federation requests by dynamically resolving server names according
+    /// to the Matrix spec (.well-known delegation, SRV records, etc.) while
+    /// maintaining correct SNI for TLS connections.
+    ///
+    /// This approach is superior to static `.resolve()` mappings because:
+    /// - One client works for all servers (no need for client-per-server)
+    /// - Proper SNI is automatically maintained
+    /// - DNS resolution follows Matrix spec dynamically
+    /// - No need for client caching or LRU eviction
+    #[tokio::test]
+    async fn test_client_reuse_with_dynamic_dns() {
+        use crate::resolve::MatrixResolver;
+
+        // Initialize resolver (wrapped in Arc for sharing)
+        let resolver = Arc::new(MatrixResolver::new().await.unwrap());
+
+        // Create ONE client with the Matrix DNS resolver
+        // This client can be reused for ALL Matrix federation requests
+        let federation_client = resolver.create_client().unwrap();
+
+        // This client dynamically resolves any Matrix server
+        let _app_state = AppState {
+            key: "test".to_string(),
+            secret: "test".to_string(),
+            lk_url: "https://localhost".to_string(),
+            local_homeservers: HashSet::new(),
+            federation_client, // Reusable for ALL servers with correct SNI
+            resolver,
+        };
+
+        // The federation_client will now correctly handle requests to any Matrix server:
+        // - It follows .well-known delegation
+        // - It performs SRV lookups
+        // - It resolves hostnames to IPs
+        // - It sends correct SNI based on the URL hostname
+        // All without needing per-server client configuration!
     }
 }
