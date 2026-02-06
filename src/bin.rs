@@ -29,7 +29,7 @@ async fn main() {
         });
 
     let full_access_homeservers = full_access_homeservers_str
-        .split(|c| c == ',' || c == ' ')
+        .split([',', ' '])
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect::<HashSet<_>>();
@@ -94,9 +94,9 @@ async fn main() {
     let app = build_app(state);
 
     // Parse bind address - could be :port or host:port
-    let addr = if lk_jwt_bind.starts_with(':') {
+    let addr = if let Some(stripped) = lk_jwt_bind.strip_prefix(':') {
         // Just a port, bind to 0.0.0.0
-        let port: u16 = lk_jwt_bind[1..].parse().unwrap_or_else(|_| {
+        let port: u16 = stripped.parse().unwrap_or_else(|_| {
             eprintln!("Invalid port in LIVEKIT_JWT_BIND: {}", lk_jwt_bind);
             std::process::exit(1);
         });
