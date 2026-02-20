@@ -38,3 +38,6 @@ tower = "0.5.2"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+ [package.metadata.dist]
+ dist = true
