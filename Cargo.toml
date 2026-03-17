@@ -16,8 +16,7 @@ path = "src/bin.rs"
 [dependencies]
 axum = "0.8.4"
 base64 = "0.22"
-color-eyre = "0.6.5"
-hickory-resolver = "0.25.2"
+# color-eyre = "0.6.5"
 # jsonwebtoken = "9.3.1"
 livekit-api = { version = "0.4.4", features = ["rustls-tls-webpki-roots", "signal-client-tokio"] }
 reqwest = { version = "0.13.1", features = ["json", "rustls", "hickory-dns"], default-features = false }
