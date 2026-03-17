@@ -1,4 +1,3 @@
-mod resolve;
 
 use axum::{
     Router,
@@ -14,7 +13,7 @@ use std::{collections::HashSet, env, sync::Arc, time::Duration};
 use tracing::{error, info, instrument, trace, warn};
 use url::Url;
 
-pub use resolve::MatrixResolver;
+pub use resolvematrix::server::MatrixResolver;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -23,7 +22,7 @@ pub struct AppState {
     pub lk_url: String,
     pub full_access_homeservers: HashSet<String>,
     pub federation_client: reqwest::Client,
-    pub resolver: Arc<resolve::MatrixResolver>,
+    pub resolver: Arc<MatrixResolver>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -466,7 +465,7 @@ pub enum ExchangeOpenIdUserInfoError {
     #[error("Invalid token")]
     InvalidToken,
     #[error("Failed to resolve matrix server: {0}")]
-    FailedToResolveMatrixServer(#[from] resolve::ResolveServerError),
+    FailedToResolveMatrixServer(#[from] resolvematrix::server::ResolveServerError),
     #[error("Bad URL: {0}")]
     BadUrl(#[from] url::ParseError),
 
